@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>비상 대피 현장 점호</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body { background-color: #f1f3f5; font-size: 15px; user-select: none; }
+    .mobile-header { position: sticky; top: 0; z-index: 1030; background: #ffffff; border-bottom: 2px solid #dee2e6; }
+    .status-group { display: flex; gap: 4px; }
+    .btn-status { min-width: 58px; height: 42px; font-weight: 700; font-size: 0.85rem; border: 1px solid #ced4da; border-radius: 8px; background-color: #fff; }
+    .btn-status.active-대피 { background-color: #198754 !important; color: #fff !important; border-color: #198754; }
+    .btn-status.active-미확인 { background-color: #dc3545 !important; color: #fff !important; border-color: #dc3545; }
+    .btn-status.active-NA { background-color: #6c757d !important; color: #fff !important; border-color: #6c757d; }
+    .emp-card { background: #ffffff; border-radius: 12px; border: 1px solid #e9ecef; padding: 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .emp-card.is-na { background-color: #f8f9fa; opacity: 0.75; }
+    .bottom-action-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #ffffff; border-top: 1px solid #dee2e6; padding: 10px 16px; z-index: 1030; box-shadow: 0 -3px 10px rgba(0,0,0,0.08); }
+    .main-submit-btn { height: 48px; font-size: 1.05rem; font-weight: 700; border-radius: 10px; }
+    .content-area { padding-bottom: 80px; }
+  </style>
+</head>
+<body>
+
+  <!-- 상단 헤더 및 설정 버튼 -->
+  <div class="mobile-header px-3 py-2 shadow-sm">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <div class="d-flex align-items-center gap-2">
+        <span class="fw-bold text-dark fs-6">🚨 비상 대피 현장 점호</span>
+        <span id="loadingBadge" class="badge bg-secondary">대기 중</span>
+      </div>
+      <!-- 설정 버튼 -->
+      <button class="btn btn-sm btn-outline-dark border-0 p-1" onclick="openConfigModal()" title="서버 설정">
+        ⚙️
+      </button>
+    </div>
+    <div class="row g-1 text-center font-monospace fw-bold" style="font-size: 0.8rem;">
+      <div class="col-4"><div class="bg-success text-white py-1 rounded">대피 <span id="cnt-safe">0</span></div></div>
+      <div class="col-4"><div class="bg-danger text-white py-1 rounded">미확인 <span id="cnt-missing">0</span></div></div>
+      <div class="col-4"><div class="bg-secondary text-white py-1 rounded">사외(NA) <span id="cnt-na">0</span></div></div>
+    </div>
+  </div>
+
+  <div class="container-fluid content-area px-2 pt-2">
+    <!-- 모바일 탭 -->
+    <ul class="nav nav-pills nav-fill mb-2 bg-white p-1 rounded-3 border" id="pills-tab">
+      <li class="nav-item">
+        <button class="nav-link active py-2 fw-bold" id="tab-emp-btn" data-bs-toggle="pill" data-bs-target="#tab-emp">부서별 점호</button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link py-2 fw-bold" id="tab-etc-btn" data-bs-toggle="pill" data-bs-target="#tab-etc">기타 / 협력사</button>
+      </li>
+    </ul>
+
+    <div class="tab-content" id="pills-tabContent">
+      <!-- 1. 임직원 부서 점호 탭 -->
+      <div class="tab-pane fade show active" id="tab-emp">
+        <div class="card border-0 shadow-sm p-2 mb-2 rounded-3">
+          <label class="form-label small fw-bold text-muted mb-1">점호 부서 선택</label>
+          <select class="form-select form-select-lg mb-2 fs-6 fw-bold" id="deptSelect" onchange="onDeptChanged()">
+            <option value="">부서를 선택해주세요</option>
+          </select>
+          <div class="d-flex gap-2">
+            <button class="btn btn-outline-success btn-sm flex-fill fw-bold py-2" onclick="bulkSetSafe()">⚡ 전원 대피 완료</button>
+            <button class="btn btn-outline-secondary btn-sm flex-fill py-2" onclick="promptAddGuest()">+ 방문객 추가</button>
+          </div>
+        </div>
+        <div id="empListContainer"></div>
+      </div>
+
+      <!-- 2. 기타 / 협력사 간이 등록 탭 -->
+      <div class="tab-pane fade" id="tab-etc">
+        <div class="card border-0 shadow-sm p-3 rounded-3">
+          <h6 class="fw-bold mb-3">협력사 및 임의 단체 점호</h6>
+          <div class="mb-3">
+            <label class="small fw-bold text-muted">소속 / 단체명</label>
+            <input type="text" class="form-control form-control-lg fs-6" id="etcGroup" placeholder="예: 구내식당팀, 시설공사팀">
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="small fw-bold text-success">대피 인원수</label>
+              <input type="number" pattern="\d*" class="form-control form-control-lg text-center fw-bold fs-5 text-success" id="etcSafeCount" value="0">
+            </div>
+            <div class="col-6">
+              <label class="small fw-bold text-danger">미확인 인원수</label>
+              <input type="number" pattern="\d*" class="form-control form-control-lg text-center fw-bold fs-5 text-danger" id="etcMissingCount" value="0">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="small fw-bold text-muted">특이사항 (작업위치/연락처 등)</label>
+            <input type="text" class="form-control" id="etcNote" placeholder="예: 2층 전기실 인근 잔류의심">
+          </div>
+          <button class="btn btn-secondary w-100 py-2 fw-bold" onclick="addEtcRecord()">명단에 추가하기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 하단 고정 전송 버튼 -->
+  <div class="bottom-action-bar">
+    <button class="btn btn-primary w-100 main-submit-btn shadow" onclick="submitCurrentData()">
+      현재 부서 점호 결과 전송하기
+    </button>
+  </div>
+
+  <!-- 설정 모달창 -->
+  <div class="modal fade" id="configModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered px-3">
+      <div class="modal-content">
+        <div class="modal-header py-2">
+          <h6 class="modal-title fw-bold">⚙️ GAS 웹앱 연동 설정</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="small fw-bold mb-1">Google Apps Script 웹앱 URL</label>
+            <textarea class="form-control" id="gasAppUrlInput" rows="3" placeholder="https://script.google.com/macros/s/.../exec"></textarea>
+            <div class="form-text text-muted" style="font-size: 0.75rem;">
+              배포된 웹앱의 <code>/exec</code> 로 끝나는 전체 URL을 입력하세요. 브라우저에 안전하게 저장됩니다.
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">취소</button>
+          <button type="button" class="btn btn-sm btn-primary" onclick="saveGasUrl()">저장 및 새로고침</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const ADMIN_PW = "3333";
+    let fullList = [];
+    let activeDeptKey = "";
+    let configModalInstance = null;
+
+    window.onload = function() {
+      configModalInstance = new bootstrap.Modal(document.getElementById('configModal'));
+      loadData();
+    };
+
+    // 1. 설정 모달 열기 (비밀번호 3333 검증)
+    function openConfigModal() {
+      const inputPw = prompt("관리자 비밀번호 4자리를 입력하세요:");
+      if (inputPw === null) return;
+      if (inputPw.trim() === ADMIN_PW) {
+        document.getElementById('gasAppUrlInput').value = localStorage.getItem('GAS_WEBAPP_URL') || '';
+        configModalInstance.show();
+      } else {
+        alert("비밀번호가 올바르지 않습니다.");
+      }
+    }
+
+    // 2. URL 저장
+    function saveGasUrl() {
+      const url = document.getElementById('gasAppUrlInput').value.trim();
+      if (!url) {
+        alert("URL을 입력해주세요.");
+        return;
+      }
+      localStorage.setItem('GAS_WEBAPP_URL', url);
+      configModalInstance.hide();
+      alert("설정이 저장되었습니다. 데이터를 다시 불러옵니다.");
+      loadData();
+    }
+
+    // 3. 데이터 로딩 (내부 google.script.run 우선, 없을 경우 fetch 통신)
+    function loadData() {
+      const badge = document.getElementById('loadingBadge');
+      badge.className = 'badge bg-warning text-dark';
+      badge.innerText = '수신 중...';
+
+      // Apps Script 내부 컨테이너 환경인 경우
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(initMasterData)
+          .withFailureHandler(handleLoadError)
+          .getInitialData();
+        return;
+      }
+
+      // 외부 웹/로컬 환경인 경우 저장된 URL로 fetch
+      const endpoint = localStorage.getItem('GAS_WEBAPP_URL');
+      if (!endpoint) {
+        badge.className = 'badge bg-danger';
+        badge.innerText = '연동 필요';
+        if (confirm("연동된 GAS 웹앱 URL이 없습니다. 지금 설정창을 여시겠습니까?")) {
+          openConfigModal();
+        }
+        return;
+      }
+
+      fetch(`${endpoint}?action=getMasterData`)
+        .then(res => res.json())
+        .then(res => {
+          if (res.success) initMasterData(res.data);
+          else handleLoadError(res.error);
+        })
+        .catch(handleLoadError);
+    }
+
+    function handleLoadError(err) {
+      const badge = document.getElementById('loadingBadge');
+      badge.className = 'badge bg-danger';
+      badge.innerText = '로딩 실패';
+      alert('데이터 로딩에 실패했습니다. 설정의 웹앱 URL과 인터넷 연결을 확인하세요.');
+    }
+
+    function initMasterData(data) {
+      fullList = data;
+      const badge = document.getElementById('loadingBadge');
+      badge.className = 'badge bg-success';
+      badge.innerText = '준비 완료';
+
+      const deptSet = new Set();
+      data.forEach(item => {
+        if (item.division && item.dept) deptSet.add(`${item.division} > ${item.dept}`);
+      });
+
+      const select = document.getElementById('deptSelect');
+      select.innerHTML = '<option value="">부서를 선택해주세요</option>';
+      Array.from(deptSet).sort().forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.innerText = d;
+        select.appendChild(opt);
+      });
+      updateTopMetrics();
+    }
+
+    function onDeptChanged() {
+      activeDeptKey = document.getElementById('deptSelect').value;
+      renderCurrentDept();
+    }
+
+    function renderCurrentDept() {
+      const container = document.getElementById('empListContainer');
+      container.innerHTML = '';
+      if (!activeDeptKey) return;
+
+      const [div, dept] = activeDeptKey.split(' > ');
+      const targetList = fullList.filter(item => item.division === div && item.dept === dept);
+
+      targetList.forEach((emp) => {
+        const card = document.createElement('div');
+        card.className = `emp-card ${emp.status === 'NA' ? 'is-na' : ''}`;
+        card.innerHTML = `
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="fw-bold fs-6 text-dark">${emp.name} <span class="badge bg-light text-secondary border fw-normal">${emp.group || '-'}</span></div>
+              <div class="small text-muted">${emp.location ? '근무지: ' + emp.location : ''} ${emp.note ? '| ' + emp.note : ''}</div>
+            </div>
+            <div class="status-group">
+              <button type="button" class="btn-status ${emp.status === '대피' ? 'active-대피' : ''}" onclick="toggleStatus('${emp.empId || emp.name}', '대피')">대피</button>
+              <button type="button" class="btn-status ${emp.status === '미확인' ? 'active-미확인' : ''}" onclick="promptMissingNote('${emp.empId || emp.name}')">미확인</button>
+              <button type="button" class="btn-status ${emp.status === 'NA' ? 'active-NA' : ''}" onclick="toggleStatus('${emp.empId || emp.name}', 'NA')">NA</button>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+      updateTopMetrics();
+    }
+
+    function toggleStatus(idOrName, newStatus) {
+      const target = fullList.find(d => (d.empId && d.empId === idOrName) || d.name === idOrName);
+      if (target) {
+        target.status = newStatus;
+        renderCurrentDept();
+      }
+    }
+
+    function promptMissingNote(idOrName) {
+      const target = fullList.find(d => (d.empId && d.empId === idOrName) || d.name === idOrName);
+      if (target) {
+        target.status = '미확인';
+        const note = prompt(`[${target.name}] 미확인 사유나 마지막 목격 위치:`, target.note || '');
+        if (note !== null) target.note = note;
+        renderCurrentDept();
+      }
+    }
+
+    function bulkSetSafe() {
+      if (!activeDeptKey) { alert('부서를 먼저 선택해주세요.'); return; }
+      const [div, dept] = activeDeptKey.split(' > ');
+      fullList.forEach(emp => {
+        if (emp.division === div && emp.dept === dept) {
+          if (emp.status !== 'NA') emp.status = '대피';
+        }
+      });
+      renderCurrentDept();
+    }
+
+    function promptAddGuest() {
+      if (!activeDeptKey) { alert('부서를 먼저 선택해주세요.'); return; }
+      const name = prompt("추가할 방문객/파견자 성함:");
+      if (!name) return;
+
+      const [div, dept] = activeDeptKey.split(' > ');
+      fullList.push({
+        empId: 'GUEST_' + Date.now(),
+        type: '방문객',
+        division: div,
+        dept: dept,
+        group: '부서초청',
+        name: `[방문] ${name}`,
+        location: '사내',
+        status: '대피',
+        note: '현장 추가'
+      });
+      renderCurrentDept();
+    }
+
+    function addEtcRecord() {
+      const gName = document.getElementById('etcGroup').value.trim();
+      const safe = parseInt(document.getElementById('etcSafeCount').value) || 0;
+      const missing = parseInt(document.getElementById('etcMissingCount').value) || 0;
+      const note = document.getElementById('etcNote').value.trim();
+
+      if (!gName) { alert('단체명을 입력하세요.'); return; }
+      if (safe + missing === 0) { alert('인원수를 1명 이상 입력하세요.'); return; }
+
+      for (let i = 1; i <= safe; i++) {
+        fullList.push({
+          empId: `ETC_${Date.now()}_${i}`,
+          type: '협력사/기타',
+          division: '협력사/기타',
+          dept: gName,
+          group: '-',
+          name: `${gName}_${i}`,
+          status: '대피',
+          note: note
+        });
+      }
+      for (let j = 1; j <= missing; j++) {
+        fullList.push({
+          empId: `ETC_${Date.now()}_${safe + j}`,
+          type: '협력사/기타',
+          division: '협력사/기타',
+          dept: gName,
+          group: '-',
+          name: `${gName}_${safe + j}`,
+          status: '미확인',
+          note: note
+        });
+      }
+
+      alert(`${gName} (대피 ${safe}명 / 미확인 ${missing}명) 반영 완료`);
+      document.getElementById('etcGroup').value = '';
+      document.getElementById('etcSafeCount').value = '0';
+      document.getElementById('etcMissingCount').value = '0';
+      document.getElementById('etcNote').value = '';
+      updateTopMetrics();
+    }
+
+    function updateTopMetrics() {
+      const safe = fullList.filter(d => d.status === '대피').length;
+      const missing = fullList.filter(d => d.status === '미확인').length;
+      const na = fullList.filter(d => d.status === 'NA').length;
+
+      document.getElementById('cnt-safe').innerText = safe;
+      document.getElementById('cnt-missing').innerText = missing;
+      document.getElementById('cnt-na').innerText = na;
+    }
+
+    // 4. 결과 전송 (Apps Script run 또는 fetch POST 분기 지원)
+    function submitCurrentData() {
+      if (!activeDeptKey && fullList.filter(d => d.type === '협력사/기타').length === 0) {
+        alert('점호 부서를 선택하거나 기타 인원을 등록하세요.');
+        return;
+      }
+
+      let payload = [];
+      let targetTitle = "";
+
+      if (activeDeptKey) {
+        const [div, dept] = activeDeptKey.split(' > ');
+        payload = fullList.filter(d => d.division === div && d.dept === dept);
+        targetTitle = activeDeptKey;
+      } else {
+        payload = fullList.filter(d => d.type === '협력사/기타');
+        targetTitle = "협력사/기타";
+      }
+
+      if (!confirm(`[${targetTitle}] 총 ${payload.length}명의 점호 결과를 전송하시겠습니까?`)) return;
+
+      const submitBtn = document.querySelector('.main-submit-btn');
+      submitBtn.disabled = true;
+      submitBtn.innerText = '전송 중... 잠시만 기다려주세요.';
+
+      // 컨테이너 내부 환경
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(res => handleSaveSuccess(res, submitBtn))
+          .withFailureHandler(err => handleSaveError(err, submitBtn))
+          .saveRollCallData(payload, targetTitle);
+        return;
+      }
+
+      // 외부 연동 환경 (fetch)
+      const endpoint = localStorage.getItem('GAS_WEBAPP_URL');
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // GAS POST 리다이렉트 표준 대응
+        body: JSON.stringify({ records: payload, reporter: targetTitle })
+      })
+      .then(res => res.json())
+      .then(res => handleSaveSuccess(res, submitBtn))
+      .catch(err => handleSaveError(err, submitBtn));
+    }
+
+    function handleSaveSuccess(res, btn) {
+      btn.disabled = false;
+      btn.innerText = '현재 부서 점호 결과 전송하기';
+      if (res.success) {
+        alert(`전송 성공! (${res.count}건 적재 완료)`);
+      } else {
+        alert('전송 오류: ' + res.error);
+      }
+    }
+
+    function handleSaveError(err, btn) {
+      btn.disabled = false;
+      btn.innerText = '현재 부서 점호 결과 전송하기';
+      alert('전송에 실패했습니다. 네트워크를 확인하세요.');
+    }
+  </script>
+</body>
+</html>
